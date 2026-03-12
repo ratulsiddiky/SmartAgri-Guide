@@ -4,13 +4,10 @@ import bcrypt
 import jwt
 import datetime
 from functools import wraps
-
+import globals
 # Create the Blueprint
 users_bp = Blueprint('users', __name__)
-
-# Connect to the database
-client = MongoClient("mongodb://127.0.0.1:27017")
-db = client.smart_agri_db
+db = globals.db
 
 
 # -------------------------------------------------------
@@ -25,8 +22,6 @@ def jwt_required(f):
     def decorated(*args, **kwargs):
         token = None
         
-        # Look for the token in the Authorization header
-        # Format expected: "Bearer <token>"
         if 'Authorization' in request.headers:
             token = request.headers['Authorization'].split(" ")[1]
         
@@ -34,13 +29,16 @@ def jwt_required(f):
             return jsonify({'message': 'Token is missing! Please log in first.'}), 401
         
         try:
-            # Decode the token using our secret key
             data = jwt.decode(
                 token,
                 current_app.config['SECRET_KEY'],
                 algorithms=["HS256"]
             )
-            # Fetch the full user document so routes can access role etc.
+            
+            # ✅ ADD THESE 2 LINES RIGHT HERE - after decoding but before fetching user
+            if db.blacklist.find_one({'token': token}):
+                return jsonify({'message': 'Token has been cancelled. Please log in again.'}), 401
+            
             current_user = db.users.find_one({"username": data['username']})
             
             if not current_user:
@@ -53,8 +51,6 @@ def jwt_required(f):
         
         return f(current_user, *args, **kwargs)
     return decorated
-
-
 # -------------------------------------------------------
 # REGISTER - Create a new user account
 # Takes username, password and optional role in the request body
@@ -154,3 +150,13 @@ def get_all_users(current_user):
         "count": len(users_list),
         "users": users_list
     }), 200
+
+@users_bp.route('/api/logout', methods=['POST'])
+@jwt_required
+def logout(current_user):
+    token = request.headers['Authorization'].split(" ")[1]
+    db.blacklist.insert_one({
+        'token': token,
+        'blacklisted_at': datetime.datetime.utcnow()
+    })
+    return jsonify({'message': 'Logged out successfully'}), 200

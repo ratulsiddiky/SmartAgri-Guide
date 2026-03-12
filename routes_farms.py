@@ -3,6 +3,7 @@ from pymongo import MongoClient
 import requests
 from datetime import datetime
 from bson.objectid import ObjectId
+import globals
 
 # Import the JWT decorator from routes_users so we can protect routes
 from routes_users import jwt_required
@@ -11,8 +12,8 @@ from routes_users import jwt_required
 farms_bp = Blueprint('farms', __name__)
 
 # Connect to the database
-client = MongoClient("mongodb://127.0.0.1:27017")
-db = client.smart_agri_db
+
+db = globals.db
 
 
 # -------------------------------------------------------
