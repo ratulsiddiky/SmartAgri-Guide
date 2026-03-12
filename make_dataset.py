@@ -29,9 +29,11 @@ for i in range(3):
     
     users_data.append({
         "username":           usernames[i],
+        "email":              f"{usernames[i]}@smartagri.com",
         "password":           hashed_password.decode('utf-8'),
         "role":               roles[i],
         "contact_preference": "email",
+        "is_verified":        True,
         "created_at":         datetime.now()
     })
 

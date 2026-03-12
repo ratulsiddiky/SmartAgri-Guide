@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, make_response
+from bson.objectid import ObjectId
 import bcrypt
 import jwt
 import datetime
@@ -13,24 +14,51 @@ blacklist = globals.db.blacklist
 @auth_bp.route('/api/users/register', methods=['POST'])
 def register():
     data = request.get_json()
-    if not data or not data.get('username') or not data.get('password'):
-        return make_response(jsonify({'message': 'Username and password are required'}), 400)
     
-    if users.find_one({'username': data['username']}):
-        return make_response(jsonify({'message': 'Username is already taken'}), 409)
+    # REQUIRE EMAIL NOW
+    if not data or not data.get('username') or not data.get('password') or not data.get('email'):
+        return make_response(jsonify({'message': 'Username, email, and password are required'}), 400)
+    
+    # Check if username OR email is already taken
+    if users.find_one({'$or': [{'username': data['username']}, {'email': data['email']}]}):
+        return make_response(jsonify({'message': 'Username or Email is already registered'}), 409)
     
     salt = bcrypt.gensalt()
     hashed_password = bcrypt.hashpw(data['password'].encode('utf-8'), salt)
     
     new_user = {
         "username": data['username'],
+        "email": data['email'],
         "password": hashed_password.decode('utf-8'),
         "role": data.get('role', 'user'),
         "contact_preference": data.get('contact_preference', 'email'),
+        "is_verified": False, # <-- NEW: Unverified by default!
         "created_at": datetime.datetime.utcnow()
     }
-    users.insert_one(new_user)
-    return make_response(jsonify({'message': f"Account created for {data['username']}!"}), 201)
+    result = users.insert_one(new_user)
+    
+    # SIMULATE SENDING AN EMAIL
+    verification_link = f"http://127.0.0.1:5001/api/users/verify/{str(result.inserted_id)}"
+    
+    return make_response(jsonify({
+        'message': f"Account created for {data['username']}! Please verify your email.",
+        'verification_link': verification_link # In the real world, this is sent to their inbox
+    }), 201)
+
+# NEW: VERIFY EMAIL ROUTE
+@auth_bp.route('/api/users/verify/<user_id>', methods=['GET'])
+def verify_email(user_id):
+    try:
+        result = users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"is_verified": True}}
+        )
+        if result.matched_count == 0:
+            return make_response(jsonify({"message": "User not found"}), 404)
+        
+        return make_response(jsonify({"message": "Email successfully verified! You can now log in."}), 200)
+    except:
+        return make_response(jsonify({"message": "Invalid verification link"}), 400)
 
 @auth_bp.route('/api/login', methods=['POST'])
 def login():
@@ -41,6 +69,10 @@ def login():
     user = users.find_one({'username': auth.username})
     if not user:
         return make_response(jsonify({'message': 'User not found'}), 404)
+        
+    # <-- NEW: BLOCK LOGIN IF NOT VERIFIED
+    if not user.get('is_verified', False):
+        return make_response(jsonify({'message': 'Please verify your email before logging in.'}), 403)
     
     if bcrypt.checkpw(auth.password.encode('utf-8'), user['password'].encode('utf-8')):
         token = jwt.encode(
@@ -61,7 +93,6 @@ def login():
     
     return make_response(jsonify({'message': 'Incorrect password'}), 401)
 
-# NEW: LOGOUT ROUTE
 @auth_bp.route('/api/logout', methods=['GET'])
 @jwt_required
 def logout(current_user):
