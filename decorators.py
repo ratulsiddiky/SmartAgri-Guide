@@ -11,7 +11,7 @@ def jwt_required(f):
     def decorated(*args, **kwargs):
         token = None
         
-        # Accept token from Authorization header or x-access-token
+        # Accept token from authorization header or x-access-token
         if 'Authorization' in request.headers:
             token = request.headers['Authorization'].split(" ")[1]
         elif 'x-access-token' in request.headers:
@@ -26,7 +26,7 @@ def jwt_required(f):
         except:
             return make_response(jsonify({'message': 'Token is invalid or expired!'}), 401)
         
-        # NEW: Check if the user has logged out
+        # Check if the user logged out
         bl_token = blacklist.find_one({'token': token})
         if bl_token is not None:
             return make_response(jsonify({'message': 'Token has been cancelled/logged out'}), 401)

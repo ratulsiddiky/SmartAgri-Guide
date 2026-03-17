@@ -9,7 +9,7 @@ from decorators import jwt_required
 farms_bp = Blueprint('farms_bp', __name__)
 farms = globals.db.farms
 
-# Helper Function
+
 def get_farm_if_authorised(farm_id, current_user):
     try:
         oid = ObjectId(farm_id)
@@ -166,6 +166,7 @@ def sync_weather(current_user, farm_id):
     except Exception as e:
         return make_response(jsonify({"message": "API error", "error": str(e)}), 500)
 
+
 @farms_bp.route('/api/farms/alerts/broadcast', methods=['POST'])
 @jwt_required
 def broadcast_alert(current_user):
@@ -188,6 +189,7 @@ def broadcast_alert(current_user):
 
     farms.update_many(geo_query, {"$push": {"alerts_history": alert_entry}})
     return make_response(jsonify({"message": "Alert broadcast!", "farms_notified": len(affected_farms)}), 200)
+
 
 @farms_bp.route('/api/farms/<farm_id>/insights', methods=['GET'])
 @jwt_required
@@ -220,6 +222,7 @@ def get_farm_insights(current_user, farm_id):
 
     except Exception as e:
         return make_response(jsonify({"message": "Error", "error": str(e)}), 500)
+
 
 @farms_bp.route('/api/farms/<farm_id>/irrigation_check', methods=['GET'])
 @jwt_required

@@ -15,11 +15,11 @@ blacklist = globals.db.blacklist
 def register():
     data = request.get_json()
     
-    # REQUIRE EMAIL NOW
+    
     if not data or not data.get('username') or not data.get('password') or not data.get('email'):
         return make_response(jsonify({'message': 'Username, email, and password are required'}), 400)
     
-    # Check if username OR email is already taken
+    # for checking if username OR email is already used
     if users.find_one({'$or': [{'username': data['username']}, {'email': data['email']}]}):
         return make_response(jsonify({'message': 'Username or Email is already registered'}), 409)
     
@@ -32,20 +32,20 @@ def register():
         "password": hashed_password.decode('utf-8'),
         "role": data.get('role', 'user'),
         "contact_preference": data.get('contact_preference', 'email'),
-        "is_verified": False, # <-- NEW: Unverified by default!
+        "is_verified": False, 
         "created_at": datetime.datetime.utcnow()
     }
     result = users.insert_one(new_user)
     
-    # SIMULATE SENDING AN EMAIL
+    
     verification_link = f"http://127.0.0.1:5001/api/users/verify/{str(result.inserted_id)}"
     
     return make_response(jsonify({
         'message': f"Account created for {data['username']}! Please verify your email.",
-        'verification_link': verification_link # In the real world, this is sent to their inbox
+        'verification_link': verification_link 
     }), 201)
 
-# NEW: VERIFY EMAIL ROUTE
+
 @auth_bp.route('/api/users/verify/<user_id>', methods=['GET'])
 def verify_email(user_id):
     try:
@@ -70,7 +70,7 @@ def login():
     if not user:
         return make_response(jsonify({'message': 'User not found'}), 404)
         
-    # <-- NEW: BLOCK LOGIN IF NOT VERIFIED
+    # BLOCK LOGIN IF NOT VERIFIED
     if not user.get('is_verified', False):
         return make_response(jsonify({'message': 'Please verify your email before logging in.'}), 403)
     
