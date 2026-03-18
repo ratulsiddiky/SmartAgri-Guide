@@ -1,28 +1,23 @@
 from flask import Flask, jsonify, make_response
 from flask_cors import CORS
 
-from blueprints import register_blueprints
-from config import Config
+app = Flask(__name__)
+CORS(app)  
 
+# import blueprints
+from blueprints.auth.auth import auth_bp
+from blueprints.farms.farms import farms_bp
 
-def create_app(config_object=Config):
-    app = Flask(__name__)
-    app.config.from_object(config_object)
-    CORS(app)
-    register_blueprints(app)
+app = Flask(__name__)
+CORS(app) 
 
-    @app.route("/", methods=["GET"])
-    def home():
-        return make_response(
-            jsonify({"message": "Welcome to the Smart Agriculture API!"}),
-            200,
-        )
+#register blueprints
+app.register_blueprint(auth_bp)
+app.register_blueprint(farms_bp)
 
-    return app
+@app.route('/', methods=['GET'])
+def home():
+    return make_response(jsonify({"message": "Welcome to the Smart Agriculture API!"}), 200)
 
-
-app = create_app()
-
-
-if __name__ == "__main__":
-    app.run(debug=Config.DEBUG, host=Config.HOST, port=Config.PORT)
+if __name__ == '__main__':
+    app.run(debug=True, port=5001)
