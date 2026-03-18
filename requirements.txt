@@ -1,0 +1,9 @@
+Flask
+Flask-Cors
+PyJWT
+bcrypt
+pymongo
+python-dotenv
+requests
+pytest
+mongomock

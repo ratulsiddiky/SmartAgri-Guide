@@ -1,35 +1,61 @@
-from flask import jsonify, request, make_response
-import jwt
 from functools import wraps
-import globals
 
-users = globals.db.users
-blacklist = globals.db.blacklist
+import jwt
+from flask import jsonify, make_response, request
 
-def jwt_required(f):
-    @wraps(f)
+from config import Config, get_db
+
+
+def _extract_token():
+    authorization = request.headers.get("Authorization", "").strip()
+    if authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            return parts[1]
+
+    return request.headers.get("x-access-token")
+
+
+def jwt_required(view_func):
+    @wraps(view_func)
     def decorated(*args, **kwargs):
-        token = None
-        
-        # Accept token from authorization header or x-access-token
-        if 'Authorization' in request.headers:
-            token = request.headers['Authorization'].split(" ")[1]
-        elif 'x-access-token' in request.headers:
-            token = request.headers['x-access-token']
-        
+        token = _extract_token()
         if not token:
-            return make_response(jsonify({'message': 'Token is missing! Please log in.'}), 401)
-        
+            return make_response(
+                jsonify({"message": "Token is missing! Please log in."}),
+                401,
+            )
+
+        db = get_db()
+        users = db.users
+        blacklist = db.blacklist
+
+        if blacklist.find_one({"token": token}):
+            return make_response(
+                jsonify({"message": "Token has been cancelled/logged out"}),
+                401,
+            )
+
         try:
-            data = jwt.decode(token, globals.SECRET_KEY, algorithms=["HS256"])
-            current_user = users.find_one({"username": data['username']})
-        except:
-            return make_response(jsonify({'message': 'Token is invalid or expired!'}), 401)
-        
-        # Check if the user logged out
-        bl_token = blacklist.find_one({'token': token})
-        if bl_token is not None:
-            return make_response(jsonify({'message': 'Token has been cancelled/logged out'}), 401)
-            
-        return f(current_user, *args, **kwargs)
+            payload = jwt.decode(token, Config.SECRET_KEY, algorithms=["HS256"])
+        except jwt.ExpiredSignatureError:
+            return make_response(
+                jsonify({"message": "Token has expired! Please log in again."}),
+                401,
+            )
+        except jwt.InvalidTokenError:
+            return make_response(
+                jsonify({"message": "Token is invalid."}),
+                401,
+            )
+
+        current_user = users.find_one({"username": payload.get("username")})
+        if current_user is None:
+            return make_response(
+                jsonify({"message": "User associated with token was not found."}),
+                404,
+            )
+
+        return view_func(current_user, *args, **kwargs)
+
     return decorated
