@@ -9,10 +9,12 @@ from app import create_app
 
 
 @pytest.fixture()
-def client():
+def client(monkeypatch):
     mock_client = mongomock.MongoClient()
-    config._mongo_client = mock_client
-    config._mongo_db = mock_client["smart_agri_test"]
+    mock_db = mock_client["smart_agri_test"]
+    config.reset_db_cache()
+    monkeypatch.setattr(config, "get_mongo_client", lambda: mock_client)
+    monkeypatch.setattr(config, "get_db", lambda: mock_db)
 
     app = create_app()
     app.config.update(TESTING=True)
@@ -20,16 +22,13 @@ def client():
     with app.test_client() as test_client:
         yield test_client
 
-    config._mongo_client = None
-    config._mongo_db = None
-
 
 def _basic_auth(username, password):
     token = b64encode(f"{username}:{password}".encode("utf-8")).decode("utf-8")
     return {"Authorization": f"Basic {token}"}
 
 
-def _login_token(client, username="farmer_one", password="password123", role="user"):
+def _login_token(client, username="farmer_one", password="Password123!", role="user"):
     hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     config.get_db().users.insert_one(
         {

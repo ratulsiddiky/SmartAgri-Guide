@@ -9,19 +9,18 @@ from app import create_app
 
 
 @pytest.fixture()
-def client():
+def client(monkeypatch):
     mock_client = mongomock.MongoClient()
-    config._mongo_client = mock_client
-    config._mongo_db = mock_client["smart_agri_test"]
+    mock_db = mock_client["smart_agri_test"]
+    config.reset_db_cache()
+    monkeypatch.setattr(config, "get_mongo_client", lambda: mock_client)
+    monkeypatch.setattr(config, "get_db", lambda: mock_db)
 
     app = create_app()
     app.config.update(TESTING=True)
 
     with app.test_client() as test_client:
         yield test_client
-
-    config._mongo_client = None
-    config._mongo_db = None
 
 
 def _basic_auth(username, password):
@@ -35,7 +34,7 @@ def test_signup_creates_user(client):
         json={
             "username": "new_farmer",
             "email": "new_farmer@example.com",
-            "password": "password123",
+            "password": "Password123!",
         },
     )
 
@@ -44,7 +43,7 @@ def test_signup_creates_user(client):
 
 
 def test_login_requires_verified_user(client):
-    password = bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode("utf-8")
+    password = bcrypt.hashpw(b"Password123!", bcrypt.gensalt()).decode("utf-8")
     config.get_db().users.insert_one(
         {
             "username": "farmer_one",
@@ -55,13 +54,13 @@ def test_login_requires_verified_user(client):
         }
     )
 
-    response = client.post("/api/login", headers=_basic_auth("farmer_one", "password123"))
+    response = client.post("/api/login", headers=_basic_auth("farmer_one", "Password123!"))
     assert response.status_code == 403
     assert response.get_json()["message"] == "Please verify your email before logging in."
 
 
 def test_logout_blacklists_token(client):
-    password = bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode("utf-8")
+    password = bcrypt.hashpw(b"Password123!", bcrypt.gensalt()).decode("utf-8")
     config.get_db().users.insert_one(
         {
             "username": "admin_user",
@@ -74,7 +73,7 @@ def test_logout_blacklists_token(client):
 
     login_response = client.post(
         "/api/login",
-        headers=_basic_auth("admin_user", "password123"),
+        headers=_basic_auth("admin_user", "Password123!"),
     )
     token = login_response.get_json()["token"]
 

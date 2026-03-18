@@ -3,6 +3,7 @@ from datetime import datetime
 import requests
 from bson import ObjectId
 from flask import Blueprint, jsonify, make_response, request
+from pymongo.errors import PyMongoError
 
 from blueprints.farms.models import (
     validate_alert_payload,
@@ -11,6 +12,7 @@ from blueprints.farms.models import (
 )
 from config import get_db
 from decorators import jwt_required
+from extensions import limiter
 from utils.validators import serialize_document
 
 farms_bp = Blueprint("farms_bp", __name__)
@@ -41,9 +43,38 @@ def get_farm_if_authorised(farm_id, current_user):
 
 
 @farms_bp.route("/api/farms", methods=["GET"])
+@limiter.limit("60 per minute")
 def get_all_farms():
-    farms_list = [serialize_document(farm) for farm in _farms_collection().find({})]
-    return make_response(jsonify(farms_list), 200)
+    page_raw = request.args.get("page", "1")
+    limit_raw = request.args.get("limit", "20")
+    try:
+        page = max(1, int(page_raw))
+        limit = max(1, min(100, int(limit_raw)))
+    except (TypeError, ValueError):
+        return make_response(jsonify({"message": "page and limit must be integers"}), 400)
+
+    skip = (page - 1) * limit
+    try:
+        total = _farms_collection().count_documents({})
+        cursor = _farms_collection().find({}).skip(skip).limit(limit)
+        farms_list = [serialize_document(farm) for farm in cursor]
+    except PyMongoError as exc:
+        return make_response(jsonify({"message": "Database error", "error": str(exc)}), 500)
+
+    return make_response(
+        jsonify(
+            {
+                "data": farms_list,
+                "pagination": {
+                    "page": page,
+                    "limit": limit,
+                    "total": total,
+                    "has_next": skip + len(farms_list) < total,
+                },
+            }
+        ),
+        200,
+    )
 
 
 @farms_bp.route("/api/farms/<farm_id>", methods=["GET"])
@@ -122,6 +153,7 @@ def add_sensor(current_user, farm_id):
 
 
 @farms_bp.route("/api/farms/search", methods=["GET"])
+@limiter.limit("30 per minute")
 def search_farms():
     search_term = request.args.get("q", "").strip()
     if not search_term:
@@ -213,8 +245,8 @@ def get_farm_insights(current_user, farm_id):
 
     try:
         result = list(_farms_collection().aggregate(pipeline))
-    except Exception as exc:
-        return make_response(jsonify({"message": "Error", "error": str(exc)}), 500)
+    except PyMongoError as exc:
+        return make_response(jsonify({"message": "Database error", "error": str(exc)}), 500)
 
     if not result:
         return make_response(jsonify({"message": "Not enough data"}), 404)
@@ -235,22 +267,26 @@ def check_irrigation(current_user, farm_id):
     if error_response:
         return error_response
 
+    moisture_level = None
+    for sensor in farm.get("sensors", []):
+        if sensor.get("type") == "Soil Moisture":
+            readings = sensor.get("readings", [])
+            if readings and isinstance(readings, list):
+                last = readings[-1]
+                if isinstance(last, dict):
+                    moisture_level = last.get("value")
+            break
+
+    if moisture_level is None:
+        return make_response(jsonify({"message": "No soil moisture sensor found."}), 404)
+
     try:
-        moisture_level = None
-        for sensor in farm.get("sensors", []):
-            if sensor.get("type") == "Soil Moisture":
-                readings = sensor.get("readings", [])
-                if readings:
-                    moisture_level = readings[-1]["value"]
-                break
+        moisture_val = float(moisture_level)
+    except (TypeError, ValueError):
+        return make_response(jsonify({"message": "Invalid sensor reading value"}), 400)
 
-        if moisture_level is None:
-            return make_response(jsonify({"message": "No soil moisture sensor found."}), 404)
-
-        status = "WARNING" if moisture_level < 20.0 else "OK"
-        return make_response(jsonify({"status": status, "moisture": moisture_level}), 200)
-    except Exception as exc:
-        return make_response(jsonify({"message": "Error", "error": str(exc)}), 500)
+    status = "WARNING" if moisture_val < 20.0 else "OK"
+    return make_response(jsonify({"status": status, "moisture": moisture_val}), 200)
 
 
 @farms_bp.route("/api/farms/region/<region_name>/insights", methods=["GET"])
@@ -275,8 +311,8 @@ def get_regional_insights(region_name):
 
     try:
         result = list(_farms_collection().aggregate(pipeline))
-    except Exception as exc:
-        return make_response(jsonify({"message": "Error", "error": str(exc)}), 500)
+    except PyMongoError as exc:
+        return make_response(jsonify({"message": "Database error", "error": str(exc)}), 500)
 
     if not result:
         return make_response(jsonify({"message": "No data found."}), 404)
