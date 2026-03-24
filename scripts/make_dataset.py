@@ -1,7 +1,15 @@
 import random
+import sys
+from pathlib import Path
 from datetime import datetime, timedelta
 
 import bcrypt
+
+# Allow running as a script: `python scripts/make_dataset.py`
+# by ensuring the repo root (where `config.py` lives) is on sys.path.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from config import get_db
 
