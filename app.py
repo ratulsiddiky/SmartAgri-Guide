@@ -7,9 +7,18 @@ from extensions import limiter
 
 def create_app():
     app = Flask(__name__)
+    CORS(app)
     app.config["SECRET_KEY"] = Config.SECRET_KEY
     app.config["RATELIMIT_DEFAULT"] = Config.RATE_LIMIT_DEFAULTS
-    CORS(app)
+    CORS(
+        app,
+        resources={
+            r"/*": {
+                "origins": ["http://localhost:4200"],
+                "allow_headers": ["Content-Type", "Authorization"],
+            }
+        },
+    )
 
     limiter.init_app(app)
 
