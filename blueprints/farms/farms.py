@@ -286,7 +286,6 @@ def broadcast_alert(current_user):
         )
 
     geo_query = {"location": {"$geoWithin": {"$geometry": data["danger_zone"]}}}
-    affected_farms = list(_farms_collection().find(geo_query))
     alert_entry = {
         "alert_type": data["alert_type"],
         "timestamp": datetime.utcnow(),
@@ -294,8 +293,27 @@ def broadcast_alert(current_user):
         "issued_by": current_user.get("username", "admin"),
     }
 
-    _farms_collection().update_many(geo_query, {"$push": {"alerts_history": alert_entry}})
-    return make_response(jsonify({"message": "Alert broadcast!", "farms_notified": len(affected_farms)}), 200)
+    try:
+        update_result = _farms_collection().update_many(
+            geo_query,
+            {"$push": {"alerts_history": alert_entry}},
+        )
+    except PyMongoError as exc:
+        return _error_response(
+            "Unable to broadcast alert because the geospatial database update failed.",
+            500,
+            error=str(exc),
+        )
+
+    return make_response(
+        jsonify(
+            {
+                "message": "Alert broadcast!",
+                "farms_notified": update_result.matched_count,
+            }
+        ),
+        200,
+    )
 
 
 @farms_bp.route("/api/farms/<farm_id>/insights", methods=["GET"])
