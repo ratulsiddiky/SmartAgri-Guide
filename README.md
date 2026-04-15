@@ -24,4 +24,9 @@ Flask API for user authentication and smart farm management.
 
 ## Running Tests
 
-`pytest`
+`c:/Users/ratul/SmartAgri-Guide/.venv/Scripts/python.exe -m pytest -q`
+
+## Submission Artifacts
+
+- `SUBMISSION_API_ENDPOINTS.md`: API endpoint summary for CW1 evidence.
+- `SUBMISSION_TESTING_SUMMARY.md`: automated testing summary for CW1 evidence.

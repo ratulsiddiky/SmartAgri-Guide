@@ -9,7 +9,7 @@ def create_app():
     app = Flask(__name__)
     CORS(app)
     app.config["SECRET_KEY"] = Config.SECRET_KEY
-    app.config["RATELIMIT_DEFAULT"] = Config.RATE_LIMIT_DEFAULTS
+    app.config["RATELIMIT_DEFAULT"] = "; ".join(Config.RATE_LIMIT_DEFAULTS)
     CORS(
         app,
         resources={

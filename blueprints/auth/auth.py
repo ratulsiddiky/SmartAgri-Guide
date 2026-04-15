@@ -9,7 +9,7 @@ from flask import Blueprint, jsonify, make_response, request
 from pymongo.errors import PyMongoError
 
 from blueprints.auth.models import validate_signup_payload
-from config import Config, get_db
+import config
 from decorators import jwt_required
 from extensions import limiter
 from utils.emailer import send_verification_email
@@ -26,7 +26,7 @@ def signup():
     if error:
         return make_response(jsonify({"message": error}), 400)
 
-    users = get_db().users
+    users = config.get_db().users
     if users.find_one(
         {"$or": [{"username": payload["username"]}, {"email": payload["email"]}]}
     ):
@@ -60,9 +60,11 @@ def signup():
     except PyMongoError as exc:
         return make_response(jsonify({"message": "Database error", "error": str(exc)}), 500)
 
-    verification_link = f"http://{Config.HOST}:{Config.PORT}/api/users/verify?token={token}"
+    verification_link = (
+        f"http://{config.Config.HOST}:{config.Config.PORT}/api/users/verify?token={token}"
+    )
 
-    if Config.EMAIL_ENABLED:
+    if config.Config.EMAIL_ENABLED:
         try:
             ok, send_error = send_verification_email(
                 to_email=payload["email"], verification_link=verification_link
@@ -104,7 +106,7 @@ def verify_email():
     if not token:
         return make_response(jsonify({"message": "Missing verification token"}), 400)
 
-    users = get_db().users
+    users = config.get_db().users
     now = datetime.datetime.utcnow()
 
     try:
@@ -139,7 +141,7 @@ def login():
     if not auth or not auth.username or not auth.password:
         return make_response(jsonify({"message": "Missing username or password"}), 401)
 
-    user = get_db().users.find_one({"username": auth.username})
+    user = config.get_db().users.find_one({"username": auth.username})
     if not user:
         return make_response(jsonify({"message": "User not found"}), 404)
 
@@ -161,7 +163,7 @@ def login():
             "role": user["role"],
             "exp": datetime.datetime.utcnow() + datetime.timedelta(minutes=30),
         },
-        Config.SECRET_KEY,
+        config.Config.SECRET_KEY,
         algorithm="HS256",
     )
 
@@ -187,7 +189,7 @@ def logout(current_user):
         if len(authorization) == 2 and authorization[0].lower() == "bearer"
         else request.headers.get("x-access-token")
     )
-    get_db().blacklist.insert_one({"token": token, "username": current_user["username"]})
+    config.get_db().blacklist.insert_one({"token": token, "username": current_user["username"]})
     return make_response(jsonify({"message": "Logout successful"}), 200)
 
 
@@ -199,6 +201,6 @@ def get_all_users(current_user):
 
     users_list = [
         serialize_document(user)
-        for user in get_db().users.find({}, {"password": 0})
+        for user in config.get_db().users.find({}, {"password": 0})
     ]
     return make_response(jsonify({"count": len(users_list), "users": users_list}), 200)

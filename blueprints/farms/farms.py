@@ -10,7 +10,7 @@ from blueprints.farms.models import (
     validate_farm_payload,
     validate_sensor_payload,
 )
-from config import get_db
+import config
 from decorators import jwt_required
 from extensions import limiter
 from utils.validators import serialize_document
@@ -18,24 +18,53 @@ from utils.validators import serialize_document
 farms_bp = Blueprint("farms_bp", __name__)
 
 
+def _error_response(message, status_code, **extra):
+    """Build a consistent API error payload for all farm endpoints.
+
+    Centralizing this response shape keeps frontend handling predictable and
+    allows each endpoint to focus on business rules instead of response wiring.
+    """
+    payload = {"message": message}
+    payload.update(extra)
+    return make_response(jsonify(payload), status_code)
+
+
 def _farms_collection():
-    return get_db().farms
+    return config.get_db().farms
 
 
 def get_farm_if_authorised(farm_id, current_user):
+    """Resolve a farm by id and enforce ownership or admin access.
+
+    The farm module uses this helper as the first gate for mutating operations.
+    It protects data integrity by ensuring that non-admin users can only change
+    farms they own, while still allowing admins to manage any farm record.
+    """
     if not ObjectId.is_valid(farm_id):
-        return None, make_response(jsonify({"message": "Invalid farm ID format"}), 400)
+        return (
+            None,
+            _error_response(
+                f"The farm id '{farm_id}' is not valid. Please use a MongoDB ObjectId.",
+                400,
+            ),
+        )
 
     farm = _farms_collection().find_one({"_id": ObjectId(farm_id)})
     if not farm:
-        return None, make_response(jsonify({"message": "Farm not found"}), 404)
+        return (
+            None,
+            _error_response(
+                f"No farm was found for id '{farm_id}'. Check the link or refresh the list and try again.",
+                404,
+            ),
+        )
 
     if current_user.get("role") == "admin":
         return farm, None
 
     if str(farm["owner_id"]) != str(current_user["_id"]):
-        return None, make_response(
-            jsonify({"message": "Access denied. You can only manage your own farms."}),
+        return None, _error_response(
+            "You do not have permission to manage this farm. Only the owner or an admin can edit it.",
             403,
         )
 
@@ -51,7 +80,10 @@ def get_all_farms():
         page = max(1, int(page_raw))
         limit = max(1, min(100, int(limit_raw)))
     except (TypeError, ValueError):
-        return make_response(jsonify({"message": "page and limit must be integers"}), 400)
+        return _error_response(
+            f"Invalid pagination parameters: page='{page_raw}' and limit='{limit_raw}' must both be whole numbers.",
+            400,
+        )
 
     skip = (page - 1) * limit
     try:
@@ -59,7 +91,11 @@ def get_all_farms():
         cursor = _farms_collection().find({}).skip(skip).limit(limit)
         farms_list = [serialize_document(farm) for farm in cursor]
     except PyMongoError as exc:
-        return make_response(jsonify({"message": "Database error", "error": str(exc)}), 500)
+        return _error_response(
+            "Unable to load farms right now because the database query failed.",
+            500,
+            error=str(exc),
+        )
 
     return make_response(
         jsonify(
@@ -80,11 +116,17 @@ def get_all_farms():
 @farms_bp.route("/api/farms/<farm_id>", methods=["GET"])
 def get_single_farm(farm_id):
     if not ObjectId.is_valid(farm_id):
-        return make_response(jsonify({"message": "Invalid farm ID format"}), 400)
+        return _error_response(
+            f"The farm id '{farm_id}' is not valid. Please use a MongoDB ObjectId.",
+            400,
+        )
 
     farm = _farms_collection().find_one({"_id": ObjectId(farm_id)})
     if not farm:
-        return make_response(jsonify({"message": "Farm not found"}), 404)
+        return _error_response(
+            f"No farm was found for id '{farm_id}'. Please check the id and try again.",
+            404,
+        )
 
     return make_response(jsonify(serialize_document(farm)), 200)
 
@@ -94,7 +136,10 @@ def get_single_farm(farm_id):
 def create_farm(current_user):
     farm_data, error = validate_farm_payload(request.get_json(silent=True))
     if error:
-        return make_response(jsonify({"message": error}), 400)
+        return _error_response(
+            f"Unable to create farm: {error}",
+            400,
+        )
 
     farm_data["owner_id"] = current_user["_id"]
     farm_data["created_at"] = datetime.utcnow()
@@ -115,7 +160,10 @@ def update_farm(current_user, farm_id):
 
     updates, error = validate_farm_payload(request.get_json(silent=True), partial=True)
     if error:
-        return make_response(jsonify({"message": error}), 400)
+        return _error_response(
+            f"Unable to update farm: {error}",
+            400,
+        )
 
     _farms_collection().update_one({"_id": ObjectId(farm_id)}, {"$set": updates})
     return make_response(jsonify({"message": "Farm updated successfully!"}), 200)
@@ -125,14 +173,23 @@ def update_farm(current_user, farm_id):
 @jwt_required
 def delete_farm(current_user, farm_id):
     if current_user.get("role") != "admin":
-        return make_response(jsonify({"message": "Admin access required"}), 403)
+        return _error_response(
+            "Only admin users can delete farms.",
+            403,
+        )
 
     if not ObjectId.is_valid(farm_id):
-        return make_response(jsonify({"message": "Invalid farm ID format"}), 400)
+        return _error_response(
+            f"The farm id '{farm_id}' is not valid. Please use a MongoDB ObjectId.",
+            400,
+        )
 
     result = _farms_collection().delete_one({"_id": ObjectId(farm_id)})
     if result.deleted_count == 0:
-        return make_response(jsonify({"message": "Farm not found"}), 404)
+        return _error_response(
+            f"No farm was found for id '{farm_id}'. Nothing was deleted.",
+            404,
+        )
 
     return make_response(jsonify({"message": "Farm deleted successfully"}), 200)
 
@@ -146,7 +203,10 @@ def add_sensor(current_user, farm_id):
 
     sensor, error = validate_sensor_payload(request.get_json(silent=True))
     if error:
-        return make_response(jsonify({"message": error}), 400)
+        return _error_response(
+            f"Unable to add sensor to farm '{farm_id}': {error}",
+            400,
+        )
 
     _farms_collection().update_one({"_id": ObjectId(farm_id)}, {"$push": {"sensors": sensor}})
     return make_response(jsonify({"message": "Sensor added to farm!", "sensor": sensor}), 201)
@@ -157,13 +217,17 @@ def add_sensor(current_user, farm_id):
 def search_farms():
     search_term = request.args.get("q", "").strip()
     if not search_term:
-        return make_response(jsonify({"message": "Provide search term using ?q="}), 400)
+        return _error_response(
+            "Search failed because no query was provided. Add a value to the q parameter and try again.",
+            400,
+        )
 
     search_results = _farms_collection().find({"$text": {"$search": search_term}})
     farms_list = [serialize_document(farm) for farm in search_results]
     return make_response(jsonify({"results_count": len(farms_list), "data": farms_list}), 200)
 
 
+# Uses farm coordinates to append live weather snapshots for later trend analytics.
 @farms_bp.route("/api/farms/<farm_id>/sync_weather", methods=["POST"])
 @jwt_required
 def sync_weather(current_user, farm_id):
@@ -186,7 +250,11 @@ def sync_weather(current_user, farm_id):
         response.raise_for_status()
         weather_data = response.json()
     except requests.RequestException as exc:
-        return make_response(jsonify({"message": "API error", "error": str(exc)}), 502)
+        return _error_response(
+            "Unable to sync weather data from Open-Meteo. Please check the farm coordinates and try again.",
+            502,
+            error=str(exc),
+        )
 
     current_weather = weather_data.get("current_weather", {})
     new_log = {
@@ -200,15 +268,22 @@ def sync_weather(current_user, farm_id):
     return make_response(jsonify({"message": "Weather synced!", "new_log": new_log}), 200)
 
 
+# Admin-only geospatial broadcast that writes alert history to all farms inside a danger polygon.
 @farms_bp.route("/api/farms/alerts/broadcast", methods=["POST"])
 @jwt_required
 def broadcast_alert(current_user):
     if current_user.get("role") != "admin":
-        return make_response(jsonify({"message": "Admin access required"}), 403)
+        return _error_response(
+            "Only admin users can broadcast emergency alerts.",
+            403,
+        )
 
     data, error = validate_alert_payload(request.get_json(silent=True))
     if error:
-        return make_response(jsonify({"message": error}), 400)
+        return _error_response(
+            f"Unable to broadcast alert: {error}",
+            400,
+        )
 
     geo_query = {"location": {"$geoWithin": {"$geometry": data["danger_zone"]}}}
     affected_farms = list(_farms_collection().find(geo_query))
@@ -226,6 +301,13 @@ def broadcast_alert(current_user):
 @farms_bp.route("/api/farms/<farm_id>/insights", methods=["GET"])
 @jwt_required
 def get_farm_insights(current_user, farm_id):
+    """Generate farm-specific weather intelligence from historical logs.
+
+    The aggregation pipeline turns raw weather events into decision-ready
+    metrics (average temperature and wind). This allows the UI to display
+    concise operational insight instead of requiring users to interpret each
+    individual weather entry.
+    """
     _, error_response = get_farm_if_authorised(farm_id, current_user)
     if error_response:
         return error_response
@@ -246,10 +328,17 @@ def get_farm_insights(current_user, farm_id):
     try:
         result = list(_farms_collection().aggregate(pipeline))
     except PyMongoError as exc:
-        return make_response(jsonify({"message": "Database error", "error": str(exc)}), 500)
+        return _error_response(
+            "Unable to generate farm insights because the database aggregation failed.",
+            500,
+            error=str(exc),
+        )
 
     if not result:
-        return make_response(jsonify({"message": "Not enough data"}), 404)
+        return _error_response(
+            "There is not enough weather log data to generate insights for this farm yet.",
+            404,
+        )
 
     insights = serialize_document(result[0])
     if insights.get("average_temp") is not None:
@@ -260,6 +349,7 @@ def get_farm_insights(current_user, farm_id):
     return make_response(jsonify({"message": "Insights generated", "dashboard_data": insights}), 200)
 
 
+# Converts latest soil moisture telemetry into a simple operational irrigation status.
 @farms_bp.route("/api/farms/<farm_id>/irrigation_check", methods=["GET"])
 @jwt_required
 def check_irrigation(current_user, farm_id):
@@ -278,12 +368,18 @@ def check_irrigation(current_user, farm_id):
             break
 
     if moisture_level is None:
-        return make_response(jsonify({"message": "No soil moisture sensor found."}), 404)
+        return _error_response(
+            "No soil moisture sensor data is available for this farm, so irrigation status cannot be calculated.",
+            404,
+        )
 
     try:
         moisture_val = float(moisture_level)
     except (TypeError, ValueError):
-        return make_response(jsonify({"message": "Invalid sensor reading value"}), 400)
+        return _error_response(
+            f"The latest soil moisture reading '{moisture_level}' is not a valid number.",
+            400,
+        )
 
     status = "WARNING" if moisture_val < 20.0 else "OK"
     return make_response(jsonify({"status": status, "moisture": moisture_val}), 200)
@@ -291,6 +387,13 @@ def check_irrigation(current_user, farm_id):
 
 @farms_bp.route("/api/farms/region/<region_name>/insights", methods=["GET"])
 def get_regional_insights(region_name):
+    """Compute community-level weather averages for a target region.
+
+    The pipeline aggregates weather logs across all farms in the same area to
+    produce regional benchmarking metrics. This supports planning decisions by
+    showing whether a single farm's conditions align with, or differ from, the
+    wider farming community.
+    """
     pipeline = [
         {"$match": {"address.area_name": region_name}},
         {"$unwind": "$weather_logs"},
@@ -312,9 +415,16 @@ def get_regional_insights(region_name):
     try:
         result = list(_farms_collection().aggregate(pipeline))
     except PyMongoError as exc:
-        return make_response(jsonify({"message": "Database error", "error": str(exc)}), 500)
+        return _error_response(
+            f"Unable to generate regional insights for '{region_name}' because the database aggregation failed.",
+            500,
+            error=str(exc),
+        )
 
     if not result:
-        return make_response(jsonify({"message": "No data found."}), 404)
+        return _error_response(
+            f"No farms with weather logs were found for region '{region_name}'.",
+            404,
+        )
 
     return make_response(jsonify({"message": "Community averages", "data": serialize_document(result[0])}), 200)

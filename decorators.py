@@ -3,7 +3,7 @@ from functools import wraps
 import jwt
 from flask import jsonify, make_response, request
 
-from config import Config, get_db
+import config
 
 
 def _extract_token():
@@ -26,7 +26,7 @@ def jwt_required(view_func):
                 401,
             )
 
-        db = get_db()
+        db = config.get_db()
         users = db.users
         blacklist = db.blacklist
 
@@ -37,7 +37,7 @@ def jwt_required(view_func):
             )
 
         try:
-            payload = jwt.decode(token, Config.SECRET_KEY, algorithms=["HS256"])
+            payload = jwt.decode(token, config.Config.SECRET_KEY, algorithms=["HS256"])
         except jwt.ExpiredSignatureError:
             return make_response(
                 jsonify({"message": "Token has expired! Please log in again."}),
