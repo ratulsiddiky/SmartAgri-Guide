@@ -19,11 +19,6 @@ farms_bp = Blueprint("farms_bp", __name__)
 
 
 def _error_response(message, status_code, **extra):
-    """Build a consistent API error payload for all farm endpoints.
-
-    Centralizing this response shape keeps frontend handling predictable and
-    allows each endpoint to focus on business rules instead of response wiring.
-    """
     payload = {"message": message}
     payload.update(extra)
     return make_response(jsonify(payload), status_code)
@@ -34,12 +29,6 @@ def _farms_collection():
 
 
 def get_farm_if_authorised(farm_id, current_user):
-    """Resolve a farm by id and enforce ownership or admin access.
-
-    The farm module uses this helper as the first gate for mutating operations.
-    It protects data integrity by ensuring that non-admin users can only change
-    farms they own, while still allowing admins to manage any farm record.
-    """
     if not ObjectId.is_valid(farm_id):
         return (
             None,
@@ -227,7 +216,6 @@ def search_farms():
     return make_response(jsonify({"results_count": len(farms_list), "data": farms_list}), 200)
 
 
-# Uses farm coordinates to append live weather snapshots for later trend analytics.
 @farms_bp.route("/api/farms/<farm_id>/sync_weather", methods=["POST"])
 @jwt_required
 def sync_weather(current_user, farm_id):
@@ -268,7 +256,6 @@ def sync_weather(current_user, farm_id):
     return make_response(jsonify({"message": "Weather synced!", "new_log": new_log}), 200)
 
 
-# Admin-only geospatial broadcast that writes alert history to all farms inside a danger polygon.
 @farms_bp.route("/api/farms/alerts/broadcast", methods=["POST"])
 @jwt_required
 def broadcast_alert(current_user):
@@ -319,13 +306,6 @@ def broadcast_alert(current_user):
 @farms_bp.route("/api/farms/<farm_id>/insights", methods=["GET"])
 @jwt_required
 def get_farm_insights(current_user, farm_id):
-    """Generate farm-specific weather intelligence from historical logs.
-
-    The aggregation pipeline turns raw weather events into decision-ready
-    metrics (average temperature and wind). This allows the UI to display
-    concise operational insight instead of requiring users to interpret each
-    individual weather entry.
-    """
     _, error_response = get_farm_if_authorised(farm_id, current_user)
     if error_response:
         return error_response
@@ -367,7 +347,6 @@ def get_farm_insights(current_user, farm_id):
     return make_response(jsonify({"message": "Insights generated", "dashboard_data": insights}), 200)
 
 
-# Converts latest soil moisture telemetry into a simple operational irrigation status.
 @farms_bp.route("/api/farms/<farm_id>/irrigation_check", methods=["GET"])
 @jwt_required
 def check_irrigation(current_user, farm_id):
@@ -405,13 +384,6 @@ def check_irrigation(current_user, farm_id):
 
 @farms_bp.route("/api/farms/region/<region_name>/insights", methods=["GET"])
 def get_regional_insights(region_name):
-    """Compute community-level weather averages for a target region.
-
-    The pipeline aggregates weather logs across all farms in the same area to
-    produce regional benchmarking metrics. This supports planning decisions by
-    showing whether a single farm's conditions align with, or differ from, the
-    wider farming community.
-    """
     pipeline = [
         {"$match": {"address.area_name": region_name}},
         {"$unwind": "$weather_logs"},

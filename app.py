@@ -22,7 +22,6 @@ def create_app():
 
     limiter.init_app(app)
 
-    # import blueprints (after app creation)
     from blueprints.auth.auth import auth_bp
     from blueprints.farms.farms import farms_bp
 
