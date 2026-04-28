@@ -1,6 +1,6 @@
-from flask import Flask, jsonify, make_response
+from flask import Flask, app, jsonify, make_response
 from flask_cors import CORS
-
+from config import Config, get_db
 from config import Config
 from extensions import limiter
 
@@ -33,6 +33,11 @@ def create_app():
         return make_response(
             jsonify({"message": "Welcome to the Smart Agriculture API!"}), 200
         )
+
+    with app.app_context():
+            db = get_db()
+            db.farms.create_index([("farm_name", "text"), ("crop_type", "text")])
+            db.farms.create_index([("location", "2dsphere")])
 
     return app
 
