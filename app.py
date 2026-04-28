@@ -35,8 +35,10 @@ def create_app():
 
     with app.app_context():
             db = get_db()
-            db.farms.create_index([("farm_name", "text"), ("crop_type", "text")])
-            db.farms.create_index([("location", "2dsphere")])
+            try:
+                db.farms.create_index([("location", "2dsphere")])
+            except Exception as e:
+                print(f"Database Index Note: {e}")
 
     return app
 
