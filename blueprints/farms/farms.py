@@ -234,13 +234,13 @@ def sync_weather(current_user, farm_id):
     )
 
     try:
-        response = requests.get(weather_url, timeout=10)
+        response = requests.get(weather_url, timeout=3)
         response.raise_for_status()
         weather_data = response.json()
     except requests.RequestException as exc:
         return _error_response(
-            "Unable to sync weather data from Open-Meteo. Please check the farm coordinates and try again.",
-            502,
+            "Unable to sync weather data right now. The external service is too slow.",
+            503,
             error=str(exc),
         )
 
