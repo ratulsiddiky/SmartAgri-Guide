@@ -1,7 +1,6 @@
-from flask import Flask, app, jsonify, make_response
+from flask import Flask, jsonify, make_response
 from flask_cors import CORS
 from config import Config, get_db
-from config import Config
 from extensions import limiter
 
 
